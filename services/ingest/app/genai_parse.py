@@ -1,4 +1,5 @@
 import os
+import json
 from google import genai  # <-- you were missing this import
 
 SCHEMA = {
@@ -57,24 +58,32 @@ def parse_receipt_gcs(gcs_uri: str) -> dict:
             {"text": prompt},
             {"file_data": {"file_uri": gcs_uri}}
         ]}],
-        # new SDK param name is generation_config
-        generation_config={
+        # ✅ use config=, not generation_config=
+        config={
             "response_mime_type": "application/json",
             "response_schema": SCHEMA
         },
     )
-    # If structured output is enabled, .parsed is a dict
-    return getattr(resp, "parsed", {})
+    return getattr(resp, "parsed", {})  # SDK returns dict when structured output kicks in
+
 
 def parse_free_text(text: str) -> dict:
     client = genai_client()
+    prompt = (
+        "Extract merchant, subtotal, tax, tip, total, currency, datetime, category "
+        f"from: {text}. Return JSON with those keys."
+    )
     resp = client.models.generate_content(
         model="gemini-1.5-pro-002",
-        contents=(
-            "Extract merchant, subtotal, tax, tip, total, currency, datetime, "
-            f"category from: {text}. Return JSON with those keys."
-        ),
-        generation_config={"response_mime_type": "application/json"},
+        contents=[{"role": "user", "parts": [{"text": prompt}]}],
+        # ✅ older SDKs expect config=
+        config={"response_mime_type": "application/json"},
     )
-    # try structured, fall back to text
-    return getattr(resp, "parsed", {"raw": getattr(resp, "text", "")})
+    # Try structured output first, then parse JSON text, then fallback
+    if hasattr(resp, "parsed") and isinstance(resp.parsed, dict):
+        return resp.parsed
+    try:
+        return json.loads(getattr(resp, "text", "{}") or "{}")
+    except Exception:
+        return {"raw": getattr(resp, "text", "")}
+
