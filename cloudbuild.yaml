@@ -1,0 +1,23 @@
+# Builds the Docker image from services/ingest and pushes to Artifact Registry.
+# Sets logging explicitly so builds with a user-managed SA succeed.
+
+options:
+  logging: CLOUD_LOGGING_ONLY 
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/expenses/expenses-ingest
+
+steps:
+  # Build
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_IMAGE}:$SHORT_SHA
+      - services/ingest
+  # Push
+  - name: gcr.io/cloud-builders/docker
+    args: [ 'push', '${_IMAGE}:$SHORT_SHA' ]
+
+images:
+  - ${_IMAGE}:$SHORT_SHA
