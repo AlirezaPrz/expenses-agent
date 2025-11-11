@@ -31,24 +31,23 @@ SCHEMA = {
   "required": ["merchant","total","category"]
 }
 
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-1.5-flash-002"
+TEXT_MODEL = "gemini-1.5-flash-002" 
 
-PROJECT  = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
-LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
+LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-east5")
 
-# ---- SINGLETON CLIENT (no name collisions) ----
-_client_instance = None
+_genai_client = None
 def genai_client():
-    global _client_instance
-    if _client_instance is None:
-        _client_instance = genai.Client(
+    global _genai_client
+    if _genai_client is None:
+        _genai_client = genai.Client(
             vertexai=True,
             project=PROJECT,
-            location=LOCATION,
+            location=LOCATION,  # <-- critical
         )
-    return _client_instance
+    return _genai_client
 
-# ---- Parsers ----
 def parse_receipt_gcs(gcs_uri: str) -> dict:
     prompt = (
         "Extract normalized expense fields from this receipt image. "
@@ -56,7 +55,7 @@ def parse_receipt_gcs(gcs_uri: str) -> dict:
     )
     client = genai_client()
     resp = client.models.generate_content(
-        model=MODEL,  # <-- was "gemini-2.0-flash"
+        model=MODEL,
         contents=[{"role": "user", "parts": [
             {"text": prompt},
             {"file_data": {"file_uri": gcs_uri}}
@@ -66,7 +65,7 @@ def parse_receipt_gcs(gcs_uri: str) -> dict:
             "response_schema": SCHEMA
         },
     )
-    return getattr(resp, "parsed", {})
+    return getattr(resp, "parsed", {}) or {}
 
 def parse_free_text(text: str) -> dict:
     client = genai_client()
@@ -75,14 +74,13 @@ def parse_free_text(text: str) -> dict:
         f"from: {text}. Return JSON with those keys."
     )
     resp = client.models.generate_content(
-        model=TEXT_MODEL,  # <-- was "gemini-1.5-pro-002"
+        model=TEXT_MODEL,
         contents=[{"role": "user", "parts": [{"text": prompt}]}],
         config={"response_mime_type": "application/json"},
     )
     if hasattr(resp, "parsed") and isinstance(resp.parsed, dict):
         return resp.parsed
     try:
-        import json
         return json.loads(getattr(resp, "text", "{}") or "{}")
     except Exception:
         return {"raw": getattr(resp, "text", "")}
