@@ -1,6 +1,9 @@
 import os
 import json
-from google import genai  # <-- you were missing this import
+from google import genai
+
+MODEL = "gemini-1.5-flash"
+TEXT_MODEL = "gemini-1.5-pro" 
 
 SCHEMA = {
   "type": "object",
@@ -53,19 +56,17 @@ def parse_receipt_gcs(gcs_uri: str) -> dict:
     )
     client = genai_client()
     resp = client.models.generate_content(
-        model=MODEL,
+        model=MODEL,  # <-- was "gemini-2.0-flash"
         contents=[{"role": "user", "parts": [
             {"text": prompt},
             {"file_data": {"file_uri": gcs_uri}}
         ]}],
-        # ✅ use config=, not generation_config=
         config={
             "response_mime_type": "application/json",
             "response_schema": SCHEMA
         },
     )
-    return getattr(resp, "parsed", {})  # SDK returns dict when structured output kicks in
-
+    return getattr(resp, "parsed", {})
 
 def parse_free_text(text: str) -> dict:
     client = genai_client()
@@ -74,16 +75,14 @@ def parse_free_text(text: str) -> dict:
         f"from: {text}. Return JSON with those keys."
     )
     resp = client.models.generate_content(
-        model="gemini-1.5-pro-002",
+        model=TEXT_MODEL,  # <-- was "gemini-1.5-pro-002"
         contents=[{"role": "user", "parts": [{"text": prompt}]}],
-        # ✅ older SDKs expect config=
         config={"response_mime_type": "application/json"},
     )
-    # Try structured output first, then parse JSON text, then fallback
     if hasattr(resp, "parsed") and isinstance(resp.parsed, dict):
         return resp.parsed
     try:
+        import json
         return json.loads(getattr(resp, "text", "{}") or "{}")
     except Exception:
         return {"raw": getattr(resp, "text", "")}
-
