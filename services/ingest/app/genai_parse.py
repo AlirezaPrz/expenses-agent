@@ -2,8 +2,8 @@ import os
 import json
 from google import genai
 
-MODEL = "gemini-1.5-flash"
-TEXT_MODEL = "gemini-1.5-pro" 
+MODEL = "gemini-2.0-flash-001"
+TEXT_MODEL = "gemini-2.0-flash-001"
 
 SCHEMA = {
   "type": "object",
