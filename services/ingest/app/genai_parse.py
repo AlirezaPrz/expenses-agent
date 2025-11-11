@@ -1,6 +1,5 @@
-# All heavy deps are imported + created lazily so startup never fails.
-
 import os
+from google import genai  # <-- you were missing this import
 
 SCHEMA = {
   "type": "object",
@@ -28,34 +27,54 @@ SCHEMA = {
   "required": ["merchant","total","category"]
 }
 
-_MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.0-flash"
 
-PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
+PROJECT  = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-_client = None
-def _client():
-    global _client
-    if _client is None:
-        _client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
-    return _client
+# ---- SINGLETON CLIENT (no name collisions) ----
+_client_instance = None
+def genai_client():
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = genai.Client(
+            vertexai=True,
+            project=PROJECT,
+            location=LOCATION,
+        )
+    return _client_instance
 
+# ---- Parsers ----
 def parse_receipt_gcs(gcs_uri: str) -> dict:
-    prompt = ("Extract normalized expense fields from this receipt image. "
-              "Return strictly valid JSON per the schema. Omit unknowns.")
-    resp = _client().models.generate_content(
-        model=_MODEL,
-        contents=[{"role":"user","parts":[{"text": prompt}, {"file_data":{"file_uri": gcs_uri}}]}],
-        config={"response_mime_type":"application/json", "response_schema": SCHEMA},
+    prompt = (
+        "Extract normalized expense fields from this receipt image. "
+        "Return strictly valid JSON per the schema. Omit unknowns."
     )
-    return resp.parsed  # dict
+    client = genai_client()
+    resp = client.models.generate_content(
+        model=MODEL,
+        contents=[{"role": "user", "parts": [
+            {"text": prompt},
+            {"file_data": {"file_uri": gcs_uri}}
+        ]}],
+        # new SDK param name is generation_config
+        generation_config={
+            "response_mime_type": "application/json",
+            "response_schema": SCHEMA
+        },
+    )
+    # If structured output is enabled, .parsed is a dict
+    return getattr(resp, "parsed", {})
 
 def parse_free_text(text: str) -> dict:
-    prompt = ("Parse this free-form expense message into normalized fields per the schema. "
-              "Infer a sensible category; use ISO datetime if possible.")
-    resp = _client().models.generate_content(
-        model=_MODEL,
-        contents=[{"role":"user","parts":[{"text": prompt + "\n\nTEXT:\n" + text}]}],
-        config={"response_mime_type":"application/json", "response_schema": SCHEMA},
+    client = genai_client()
+    resp = client.models.generate_content(
+        model="gemini-1.5-pro-002",
+        contents=(
+            "Extract merchant, subtotal, tax, tip, total, currency, datetime, "
+            f"category from: {text}. Return JSON with those keys."
+        ),
+        generation_config={"response_mime_type": "application/json"},
     )
-    return resp.parsed
+    # try structured, fall back to text
+    return getattr(resp, "parsed", {"raw": getattr(resp, "text", "")})
