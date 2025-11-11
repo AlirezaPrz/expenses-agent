@@ -1,23 +1,26 @@
-# Builds the Docker image from services/ingest and pushes to Artifact Registry.
-# Sets logging explicitly so builds with a user-managed SA succeed.
+# cloudbuild.yaml  (root of repo)
 
 options:
-  logging: CLOUD_LOGGING_ONLY 
+  logging: CLOUD_LOGGING_ONLY
 
 substitutions:
-  _IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/expenses/expenses-ingest
+  _AR_REPO: expenses
+  _IMAGE_NAME: expenses-ingest
 
 steps:
-  # Build
+  # Build the image from services/ingest/
   - name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
-      - ${_IMAGE}:$SHORT_SHA
+      - us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA
       - services/ingest
-  # Push
+
+  # Push the image
   - name: gcr.io/cloud-builders/docker
-    args: [ 'push', '${_IMAGE}:$SHORT_SHA' ]
+    args:
+      - push
+      - us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA
 
 images:
-  - ${_IMAGE}:$SHORT_SHA
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA
