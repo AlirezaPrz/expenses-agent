@@ -30,13 +30,15 @@ SCHEMA = {
 
 _MODEL = "gemini-2.0-flash"
 
+PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
+LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+
+_client = None
 def _client():
-    # Import here to avoid module import-time failures.
-    from google import genai
-    # Pull project/location from env (Cloud Run sets GOOGLE_CLOUD_PROJECT; we set region).
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
-    return genai.Client(project=project, vertexai_location=location)
+    global _client
+    if _client is None:
+        _client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
+    return _client
 
 def parse_receipt_gcs(gcs_uri: str) -> dict:
     prompt = ("Extract normalized expense fields from this receipt image. "
