@@ -12,6 +12,21 @@ app = FastAPI(title="Expenses Ingest API")
 storage_client = storage.Client()
 firestore_client = firestore.Client(project=PROJECT_ID)
 
+from fastapi.responses import PlainTextResponse
+
+@app.get("/", response_class=PlainTextResponse)
+def root():
+    return "expenses-ingest alive"
+
+@app.get("/health", response_class=PlainTextResponse)
+def health_text():
+    return "ok"
+
+@app.on_event("startup")
+async def log_routes():
+    print("ROUTES:", [r.path for r in app.routes])
+
+
 def _save_tx(parsed: dict, source: str, raw_uri: str = ""):
     # Normalize and fill safe defaults
     ts = parsed.get("datetime")
