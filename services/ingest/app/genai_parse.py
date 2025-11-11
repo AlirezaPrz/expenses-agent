@@ -34,49 +34,71 @@ SCHEMA = {
 MODEL = "gemini-1.5-flash-002"
 TEXT_MODEL = "gemini-1.5-flash-002" 
 
-PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
+PROJECT  = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-east5")
 
-_genai_client = None
+_client = None
 def genai_client():
-    global _genai_client
-    if _genai_client is None:
-        _genai_client = genai.Client(
-            vertexai=True,
-            project=PROJECT,
-            location=LOCATION,  # <-- critical
-        )
-    return _genai_client
+    global _client
+    if _client is None:
+        _client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
+    return _client
+
+def list_models():
+    # Returns simple list of model short names
+    names = []
+    for m in genai_client().models.list():
+        # m.name is the full path; keep only the tail (model id)
+        names.append(m.name.split("/models/")[-1])
+    return names
+
+def _choose_model(preferred: list[str]) -> str:
+    available = set(list_models())
+    for m in preferred:
+        if m in available:
+            return m
+    # last resort: try any gemini-* in region
+    any_gemini = [m for m in available if m.startswith("gemini-")]
+    if not any_gemini:
+        raise RuntimeError(f"No Gemini models available in {LOCATION}. Available: {sorted(available)}")
+    return sorted(any_gemini)[0]
+
+# keep one place to resolve models
+def _text_model():
+    return _choose_model([
+        "gemini-2.0-flash-001",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-8b",
+        "gemini-1.5-pro",
+    ])
+
+def _image_model():
+    # same fallbacks for the receipt+JSON call
+    return _text_model()
 
 def parse_receipt_gcs(gcs_uri: str) -> dict:
-    prompt = (
-        "Extract normalized expense fields from this receipt image. "
-        "Return strictly valid JSON per the schema. Omit unknowns."
-    )
     client = genai_client()
     resp = client.models.generate_content(
-        model=MODEL,
-        contents=[{"role": "user", "parts": [
-            {"text": prompt},
+        model=_image_model(),
+        contents=[{"role":"user","parts":[
+            {"text": "Extract normalized expense fields as JSON per schema. Omit unknowns."},
             {"file_data": {"file_uri": gcs_uri}}
         ]}],
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": SCHEMA
-        },
+        config={"response_mime_type":"application/json","response_schema": SCHEMA},
     )
     return getattr(resp, "parsed", {}) or {}
 
 def parse_free_text(text: str) -> dict:
     client = genai_client()
     prompt = (
-        "Extract merchant, subtotal, tax, tip, total, currency, datetime, category "
-        f"from: {text}. Return JSON with those keys."
+        "Extract merchant, subtotal, tax, tip, total, currency, datetime, category from: "
+        f"{text}\nReturn strictly valid JSON with only those keys."
     )
     resp = client.models.generate_content(
-        model=TEXT_MODEL,
-        contents=[{"role": "user", "parts": [{"text": prompt}]}],
-        config={"response_mime_type": "application/json"},
+        model=_text_model(),
+        contents=[{"role":"user","parts":[{"text": prompt}]}],
+        config={"response_mime_type":"application/json"},
     )
     if hasattr(resp, "parsed") and isinstance(resp.parsed, dict):
         return resp.parsed

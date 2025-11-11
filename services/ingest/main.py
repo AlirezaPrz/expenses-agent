@@ -1,3 +1,5 @@
+import os
+from app.genai_parse import list_models
 from fastapi import FastAPI, UploadFile, Form
 from fastapi.responses import PlainTextResponse
 from google.cloud import storage, firestore
@@ -12,6 +14,16 @@ app = FastAPI(title="Expenses Ingest API")
 
 storage_client = storage.Client()
 firestore_client = firestore.Client(project=PROJECT_ID)
+
+@app.get("/env", response_class=PlainTextResponse)
+def env():
+    return f"PROJECT={os.getenv('GOOGLE_CLOUD_PROJECT') or os.getenv('PROJECT_ID')}\n" \
+           f"LOCATION={os.getenv('GOOGLE_CLOUD_LOCATION')}\n"
+
+@app.get("/models")
+def models():
+    return {"location": os.getenv("GOOGLE_CLOUD_LOCATION"), "models": list_models()}
+
 
 @app.get("/", response_class=PlainTextResponse)
 def root():
