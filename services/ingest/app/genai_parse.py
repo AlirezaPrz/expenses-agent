@@ -1,112 +1,80 @@
-import os, google.auth
-import json
+import os
 from google import genai
-
-MODEL = "gemini-2.0-flash-001"
-TEXT_MODEL = "gemini-2.0-flash-001"
+import google.auth
 
 SCHEMA = {
-  "type": "object",
-  "properties": {
-    "merchant": {"type": "string"},
-    "datetime": {"type": "string", "format": "date-time"},
-    "currency": {"type": "string"},
-    "subtotal": {"type": "number"},
-    "tax": {"type": "number"},
-    "tip": {"type": "number"},
-    "total": {"type": "number"},
-    "category": {"type": "string", "enum": [
-      "food","transport","grocery","rent","utilities","shopping","health",
-      "entertainment","coffee","other"
-    ]},
-    "line_items": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {"desc":{"type":"string"}, "qty":{"type":"number"}, "price":{"type":"number"}},
-        "required": ["desc","price"]
-      }
-    }
-  },
-  "required": ["merchant","total","category"]
+    "type": "object",
+    "properties": {
+        "merchant": {"type": "string"},
+        "datetime": {"type": "string", "format": "date-time"},
+        "currency": {"type": "string"},
+        "subtotal": {"type": "number"},
+        "tax": {"type": "number"},
+        "tip": {"type": "number"},
+        "total": {"type": "number"},
+        "category": {"type": "string", "enum": [
+            "food","transport","grocery","rent","utilities","shopping","health",
+            "entertainment","coffee","other"
+        ]},
+        "line_items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"desc":{"type":"string"}, "qty":{"type":"number"}, "price":{"type":"number"}},
+                "required": ["desc","price"]
+            }
+        }
+    },
+    "required": ["merchant","total","category"]
 }
 
-MODEL = "gemini-2.0-flash-001"
-TEXT_MODEL = "gemini-2.0-flash-001" 
+MODEL_FAST = "gemini-2.0-flash-001"
 
-PROJECT = (
-    os.getenv("GOOGLE_CLOUD_PROJECT")
-    or os.getenv("PROJECT_ID")
-    or google.auth.default()[2]
-)
+# Resolve region & project deterministically
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-_client = None
-def genai_client():
-    global _client
-    if _client is None:
-        _client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
-    return _client
+def _resolve_project():
+    # Prefer explicit env, then ADC project_id
+    env_proj = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
+    if env_proj:
+        return env_proj
+    creds, project_id = google.auth.default()
+    return project_id
+
+PROJECT = _resolve_project()
+
+_client_singleton = None
+def get_genai_client():
+    global _client_singleton
+    if _client_singleton is None:
+        _client_singleton = genai.Client(
+            vertexai=True,
+            project=PROJECT,
+            location=LOCATION,
+        )
+    return _client_singleton
 
 def list_models():
-    # Returns simple list of model short names
-    names = []
-    for m in genai_client().models.list():
-        # m.name is the full path; keep only the tail (model id)
-        names.append(m.name.split("/models/")[-1])
-    return names
-
-def _choose_model(preferred: list[str]) -> str:
-    available = set(list_models())
-    for m in preferred:
-        if m in available:
-            return m
-    # last resort: try any gemini-* in region
-    any_gemini = [m for m in available if m.startswith("gemini-")]
-    if not any_gemini:
-        raise RuntimeError(f"No Gemini models available in {LOCATION}. Available: {sorted(available)}")
-    return sorted(any_gemini)[0]
-
-# keep one place to resolve models
-def _text_model():
-    return _choose_model([
-        "gemini-2.0-flash-001",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-pro",
-    ])
-
-def _image_model():
-    # same fallbacks for the receipt+JSON call
-    return _text_model()
+    client = get_genai_client()
+    return [m.name for m in client.models.list()]
 
 def parse_receipt_gcs(gcs_uri: str) -> dict:
-    client = genai_client()
+    prompt = ("Extract normalized expense fields from this receipt image. "
+              "Return strictly valid JSON per the schema. Omit unknowns.")
+    client = get_genai_client()
     resp = client.models.generate_content(
-        model=_image_model(),
-        contents=[{"role":"user","parts":[
-            {"text": "Extract normalized expense fields as JSON per schema. Omit unknowns."},
-            {"file_data": {"file_uri": gcs_uri}}
-        ]}],
-        config={"response_mime_type":"application/json","response_schema": SCHEMA},
+        model=MODEL_FAST,
+        contents=[{"role":"user","parts":[{"text": prompt}, {"file_data":{"file_uri": gcs_uri}}]}],
+        config={"response_mime_type":"application/json", "response_schema": SCHEMA},
     )
-    return getattr(resp, "parsed", {}) or {}
+    return resp.parsed
 
 def parse_free_text(text: str) -> dict:
-    client = genai_client()
-    prompt = (
-        "Extract merchant, subtotal, tax, tip, total, currency, datetime, category from: "
-        f"{text}\nReturn strictly valid JSON with only those keys."
-    )
+    client = get_genai_client()
     resp = client.models.generate_content(
-        model=_text_model(),
-        contents=[{"role":"user","parts":[{"text": prompt}]}],
-        config={"response_mime_type":"application/json"},
+        model=MODEL_FAST,
+        contents=f"Extract merchant, subtotal, tax, tip, total, currency, datetime, category from: {text}. "
+                 f"Return JSON with those keys and reasonable defaults if missing.",
+        config={"response_mime_type":"application/json", "response_schema": SCHEMA},
     )
-    if hasattr(resp, "parsed") and isinstance(resp.parsed, dict):
-        return resp.parsed
-    try:
-        return json.loads(getattr(resp, "text", "{}") or "{}")
-    except Exception:
-        return {"raw": getattr(resp, "text", "")}
+    return resp.parsed

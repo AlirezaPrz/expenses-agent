@@ -1,12 +1,10 @@
 import os
-from app.genai_parse import list_models
-from fastapi import FastAPI, UploadFile, Form
+from app.genai_parse import list_models as gp_list_models, LOCATION
 from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi import FastAPI, UploadFile, Form
 from google.cloud import storage, firestore
 from dateutil import parser as dateparser
 import uuid, datetime
-import google.auth, google.auth.transport.requests
-
 from app.config import BUCKET, PROJECT_ID, DEFAULT_USER, DEFAULT_CURRENCY
 from app.genai_parse import parse_receipt_gcs, parse_free_text
 from app.reporting import sum_by_category_firestore
@@ -29,11 +27,9 @@ def whoami():
     return f"SA={getattr(creds, 'service_account_email', 'unknown')}\nPROJECT={proj}"
 
 @app.get("/models")
-def list_models():
+def models():
     try:
-        client = get_genai_client()
-        out = [m.name for m in client.models.list()]
-        return {"location": LOCATION, "models": out}
+        return {"location": LOCATION, "models": gp_list_models()}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
