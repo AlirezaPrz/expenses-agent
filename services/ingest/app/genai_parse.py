@@ -1,4 +1,4 @@
-import os
+import os, google.auth
 import json
 from google import genai
 
@@ -31,11 +31,15 @@ SCHEMA = {
   "required": ["merchant","total","category"]
 }
 
-MODEL = "gemini-1.5-flash-002"
-TEXT_MODEL = "gemini-1.5-flash-002" 
+MODEL = "gemini-2.0-flash-001"
+TEXT_MODEL = "gemini-2.0-flash-001" 
 
-PROJECT  = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
-LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-east5")
+PROJECT = (
+    os.getenv("GOOGLE_CLOUD_PROJECT")
+    or os.getenv("PROJECT_ID")
+    or google.auth.default()[2]
+)
+LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
 _client = None
 def genai_client():

@@ -1,10 +1,11 @@
 import os
 from app.genai_parse import list_models
 from fastapi import FastAPI, UploadFile, Form
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from google.cloud import storage, firestore
 from dateutil import parser as dateparser
 import uuid, datetime
+import google.auth, google.auth.transport.requests
 
 from app.config import BUCKET, PROJECT_ID, DEFAULT_USER, DEFAULT_CURRENCY
 from app.genai_parse import parse_receipt_gcs, parse_free_text
@@ -16,13 +17,25 @@ storage_client = storage.Client()
 firestore_client = firestore.Client(project=PROJECT_ID)
 
 @app.get("/env", response_class=PlainTextResponse)
-def env():
-    return f"PROJECT={os.getenv('GOOGLE_CLOUD_PROJECT') or os.getenv('PROJECT_ID')}\n" \
-           f"LOCATION={os.getenv('GOOGLE_CLOUD_LOCATION')}\n"
+def env_dump():
+    proj = os.getenv("GOOGLE_CLOUD_PROJECT")
+    loc = os.getenv("GOOGLE_CLOUD_LOCATION")
+    return f"GOOGLE_CLOUD_PROJECT={proj}\nGOOGLE_CLOUD_LOCATION={loc}"
+
+@app.get("/whoami", response_class=PlainTextResponse)
+def whoami():
+    import google.auth
+    creds, proj = google.auth.default()
+    return f"SA={getattr(creds, 'service_account_email', 'unknown')}\nPROJECT={proj}"
 
 @app.get("/models")
-def models():
-    return {"location": os.getenv("GOOGLE_CLOUD_LOCATION"), "models": list_models()}
+def list_models():
+    try:
+        client = get_genai_client()
+        out = [m.name for m in client.models.list()]
+        return {"location": LOCATION, "models": out}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/", response_class=PlainTextResponse)
