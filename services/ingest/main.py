@@ -99,7 +99,8 @@ async def upload_receipt(file: UploadFile):
     blob.upload_from_file(file.file, content_type=file.content_type)
     gcs_uri = f"gs://{BUCKET}/{blob_name}"
 
-    parsed = parse_receipt_gcs(gcs_uri)
+    # NEW: pass mime_type
+    parsed = parse_receipt_gcs(gcs_uri, mime_type=file.content_type or "image/jpeg")
     saved = _save_tx(parsed, source="receipt", raw_uri=gcs_uri)
     return {"uploaded": True, "gcs": gcs_uri, "parsed": parsed, "doc": saved}
 

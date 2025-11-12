@@ -58,14 +58,26 @@ def list_models():
     client = get_genai_client()
     return [m.name for m in client.models.list()]
 
-def parse_receipt_gcs(gcs_uri: str) -> dict:
+def parse_receipt_gcs(gcs_uri: str, mime_type: str = "image/jpeg") -> dict:
     prompt = ("Extract normalized expense fields from this receipt image. "
               "Return strictly valid JSON per the schema. Omit unknowns.")
     client = get_genai_client()
     resp = client.models.generate_content(
         model=MODEL_FAST,
-        contents=[{"role":"user","parts":[{"text": prompt}, {"file_data":{"file_uri": gcs_uri}}]}],
-        config={"response_mime_type":"application/json", "response_schema": SCHEMA},
+        contents=[{
+            "role": "user",
+            "parts": [
+                {"text": prompt},
+                {
+                    "file_data": {
+                        "file_uri": gcs_uri,
+                        "mime_type": mime_type,
+                    }
+                },
+            ],
+        }],
+        config={"response_mime_type": "application/json",
+                "response_schema": SCHEMA},
     )
     return resp.parsed
 
