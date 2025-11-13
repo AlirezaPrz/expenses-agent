@@ -30,11 +30,9 @@ SCHEMA = {
 
 MODEL_FAST = "gemini-2.0-flash-001"
 
-# Resolve region & project deterministically
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
 def _resolve_project():
-    # Prefer explicit env, then ADC project_id
     env_proj = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
     if env_proj:
         return env_proj
