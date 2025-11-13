@@ -1,5 +1,4 @@
 import os
-from app.genai_parse import list_models as gp_list_models, LOCATION
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi import FastAPI, UploadFile, Form
 from google.cloud import storage, firestore
@@ -8,43 +7,20 @@ import uuid, datetime
 from app.config import BUCKET, PROJECT_ID, DEFAULT_USER, DEFAULT_CURRENCY
 from app.genai_parse import parse_receipt_gcs, parse_free_text
 from app.reporting import sum_by_category_firestore
+from pydantic import BaseModel
 
 app = FastAPI(title="Expenses Ingest API")
 
 storage_client = storage.Client()
 firestore_client = firestore.Client(project=PROJECT_ID)
 
-@app.get("/env", response_class=PlainTextResponse)
-def env_dump():
-    proj = os.getenv("GOOGLE_CLOUD_PROJECT")
-    loc = os.getenv("GOOGLE_CLOUD_LOCATION")
-    return f"GOOGLE_CLOUD_PROJECT={proj}\nGOOGLE_CLOUD_LOCATION={loc}"
-
-@app.get("/whoami", response_class=PlainTextResponse)
-def whoami():
-    import google.auth
-    creds, proj = google.auth.default()
-    return f"SA={getattr(creds, 'service_account_email', 'unknown')}\nPROJECT={proj}"
-
-@app.get("/models")
-def models():
-    try:
-        return {"location": LOCATION, "models": gp_list_models()}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-@app.get("/", response_class=PlainTextResponse)
+@app.get("/")
 def root():
     return "expenses-ingest alive"
 
 @app.get("/healthz")
 def health_json():
     return {"ok": True, "project": PROJECT_ID, "bucket_set": bool(BUCKET)}
-
-@app.on_event("startup")
-async def log_routes():
-    print("ROUTES:", [r.path for r in app.routes])
 
 def _to_utc(dt: datetime.datetime) -> datetime.datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
@@ -72,15 +48,6 @@ def _save_tx(parsed: dict, source: str, raw_uri: str = ""):
     doc["id"] = ref.id
     return doc
 
-# --- Text (form) ---
-@app.post("/text")
-async def add_text_expense(text: str = Form(...)):
-    parsed = parse_free_text(text)
-    saved = _save_tx(parsed, source="text")
-    return {"saved": True, "parsed": parsed, "doc": saved}
-
-# --- Text (JSON) -- optional but convenient ---
-from pydantic import BaseModel
 class TextIn(BaseModel):
     text: str
 

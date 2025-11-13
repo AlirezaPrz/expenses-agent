@@ -54,10 +54,6 @@ def get_genai_client():
         )
     return _client_singleton
 
-def list_models():
-    client = get_genai_client()
-    return [m.name for m in client.models.list()]
-
 def parse_receipt_gcs(gcs_uri: str, mime_type: str = "image/jpeg") -> dict:
     prompt = ("Extract normalized expense fields from this receipt image. "
               "Return strictly valid JSON per the schema. Omit unknowns.")
