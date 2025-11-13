@@ -57,7 +57,6 @@ async def add_text_json(payload: TextIn):
     saved = _save_tx(parsed, source="text")
     return {"saved": True, "parsed": parsed, "doc": saved}
 
-# --- Receipt upload ---
 @app.post("/upload-receipt")
 async def upload_receipt(file: UploadFile):
     bucket = storage_client.bucket(BUCKET)
@@ -65,13 +64,10 @@ async def upload_receipt(file: UploadFile):
     blob = bucket.blob(blob_name)
     blob.upload_from_file(file.file, content_type=file.content_type)
     gcs_uri = f"gs://{BUCKET}/{blob_name}"
-
-    # NEW: pass mime_type
     parsed = parse_receipt_gcs(gcs_uri, mime_type=file.content_type or "image/jpeg")
     saved = _save_tx(parsed, source="receipt", raw_uri=gcs_uri)
     return {"uploaded": True, "gcs": gcs_uri, "parsed": parsed, "doc": saved}
 
-# --- Report ---
 @app.get("/report")
 def report(days: int = 30):
     col = (firestore_client.collection("users").document(DEFAULT_USER)
